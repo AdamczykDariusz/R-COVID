@@ -1,0 +1,251 @@
+---
+title: "COVID-19 Output Report"
+author: "Dariusz Adamczyk"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(zoo)
+library(knitr)
+library(rmarkdown)
+library(ggplot2)
+library(plotly)
+library(caret)
+```
+## Executive summary
+Using a data sample from Tongji Hospital in Wuhan from January 10 to February 18, 2020, the study determined the most relevant parameters to estimate the probability of death for a patient suspected of having COVID-19 virus. The values of the following blood indicators were identified as the parameters most strongly correlated with the probability of death:
+
+- Neutrofils (%) and Neutrofils count 
+- Percentage of Lymphocytes
+- Albumin
+- Prothrombin activity
+- High sensitivity C-reactive protein
+- D-D Dimer
+- Lactate dehydrogenase
+- Fibrin degradation products 
+
+The age of the patients is also correlated with patients survivability, however correlation does not imply causation, so therefore the age was decided not to be used in the analysis.
+
+The conducted analysis confirms the key parameter conculsions stated by Li Yan et al. in the article „An interpretable mortality prediction model for COVID-19 patients”. The importance of Lactate dehydrogenase, High sensivity C-reactive protein and Lymphocyte levels was also confirmed in the data presented in the report.
+
+---
+
+Wykorzystując próbkę danych ze szpitala Tongji w Wuhan z okresu od 10 stycznia do 18 lutego 2020 r., w badaniu określono najistotniejsze parametry pozwalające oszacować prawdopodobieństwo zgonu pacjenta podejrzanego o zakażenie wirusem COVID-19. Wartości następujących wskaźników krwi zostały zidentyfikowane jako parametry najsilniej skorelowane z prawdopodobieństwem zgonu:
+
+- Neutrofile
+- Odsetek limfocytów
+- Albumina
+- Aktywność protrombiny
+- Białko C-reaktywne o wysokiej czułości
+- D-dimery
+- Dehydrogenaza mleczanowa
+- Produkty degradacji fibryny 
+
+Wiek pacjentów jest również skorelowany z przeżywalnością pacjentów, jednak korelacja nie oznacza związku przyczynowego, dlatego też zdecydowano się nie uwzględniać wieku w analizie.
+
+Przeprowadzona analiza potwierdza kluczowe zbieżności parametrów podane przez Li Yan i wsp. w artykule ""An interpretable mortality prediction model for COVID-19 patients". Znaczenie dehydrogenazy mleczanowej, białka C-reaktywnego o wysokiej czułości oraz poziomu limfocytów zostało również potwierdzone w danych przedstawionych w raporcie.
+
+## Used R libraries
+
+```{r}
+sessionInfo()
+```
+
+## Code ensuring repeatability of results each time the report runs on the same data
+
+```{r}
+rm(list=ls())
+```
+
+## Code allowing to load data from the input file
+
+```{r}
+setwd("C:/Users/adamc/OneDrive/Desktop/Studia Podyplomowe/Projekt R")
+
+coviddata <- read_excel("wuhan_blood_sample_data_Jan_Feb_2020.xlsx")
+```
+
+## Data cleansing code
+
+```{r}
+colnames(coviddata)[1] <- "Patient ID"
+colnames(coviddata)[2] <- "Date of entry"
+colnames(coviddata)[3] <- "Age"
+colnames(coviddata)[4] <- "Gender"
+colnames(coviddata)[7] <- "Outcome"
+colnames(coviddata)[9] <- "Hemoglobin"
+colnames(coviddata)[12] <- "Procalcitonin"
+colnames(coviddata)[13] <- "Eosinophils"
+colnames(coviddata)[16] <- "Albumin"
+colnames(coviddata)[17] <- "Basophil"
+colnames(coviddata)[21] <- "Monocytes"
+colnames(coviddata)[22] <- "Antithrombin"
+colnames(coviddata)[24] <- "Indirect bilirubin"
+colnames(coviddata)[26] <- "Neutrophils"
+colnames(coviddata)[27] <- "Total protein"
+colnames(coviddata)[31] <- "Mean corpuscular volume"
+colnames(coviddata)[32] <- "Hematocrit"
+colnames(coviddata)[33] <- "White blood cell count"
+colnames(coviddata)[34] <- "Tumor necrosis factor alpha"
+colnames(coviddata)[35] <- "Mean corpuscular hemoglobin concentration"
+colnames(coviddata)[36] <- "Fibrinogen"
+colnames(coviddata)[39] <- "Lymphocyte count"
+colnames(coviddata)[45] <- "Glucose"
+colnames(coviddata)[46] <- "Neutrophils count"
+colnames(coviddata)[49] <- "Ferritin"
+colnames(coviddata)[52] <- "Lymphocyte"
+colnames(coviddata)[56] <- "Aspartate aminotransferase"
+colnames(coviddata)[59] <- "Calcium"
+colnames(coviddata)[62] <- "Platelet large cell ratio"
+colnames(coviddata)[65] <- "Monocytes  count"
+colnames(coviddata)[67] <- "Globuline"
+colnames(coviddata)[68] <- "Gamma-glutamyl transpeptidase"
+colnames(coviddata)[70] <- "Basophil count"
+colnames(coviddata)[72] <- "Mean corpuscular hemoglobin"
+colnames(coviddata)[76] <- "Serum sodium"
+colnames(coviddata)[77] <- "Thrombocytocrit"
+colnames(coviddata)[79] <- "Glutamic-pyruvid transaminase"
+colnames(coviddata)[81] <- "Creatinine"
+```
+
+## Section summarizing dataset size and basic statistics
+
+```{r}
+print(paste("Number of gathered inputs:",nrow(coviddata),sep=" "))
+print(paste("Number of analyzed patients:",max(coviddata$`Patient ID`),sep=" "))
+print(paste("Lowest patients' age:",min(coviddata$Age),sep=" "))
+print(paste("Mean patients' age:",mean(coviddata$Age),sep=" "))
+print(paste("Highest patients' age:",max(coviddata$Age),sep=" "))
+```
+
+## Analysis of attribute values
+
+```{r echo=FALSE}
+print("Patients age")
+summary(coviddata$Age)
+hist(coviddata$Age, main="Patients age histogram", xlab="Patients age")
+
+summary(coviddata[-1:-7])
+```
+
+## The correlation check section
+
+```{r warning=FALSE}
+
+pearsoncor <- matrix(data=NA, nrow=0, ncol=2)
+
+
+  for(i in 8:81){
+    outcome <- dplyr::pull(coviddata,7)
+    analyzed_data <- dplyr::pull(coviddata,i)
+    currentfactor <- colnames(coviddata)[i]
+    corvalue <- cor.test(outcome, analyzed_data)$estimate
+    result <- c(currentfactor, abs(corvalue))
+    pearsoncor <- rbind(pearsoncor, result)
+    
+  }
+pearsoncor <- pearsoncor[order(pearsoncor[,2], decreasing=TRUE),]
+
+plot(x <- pearsoncor[1:12,2], main="Most important factors predicting outcome", ylab="Pearson Correlation")
+
+text(pearsoncor[1:12,2], labels=pearsoncor[1:12,1], cex=0.7)
+
+p <- ggplot(coviddata, aes(x=coviddata$Neutrophils, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Neutrophils") + ylab("Outcome") + ggtitle("Impact of Neutrophils on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p)
+
+p2 <- ggplot(coviddata, aes(x=coviddata$Lymphocyte, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Lymphocyte") + ylab("Outcome") + ggtitle("Impact of Lymphocyte on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p2)
+
+p3 <- ggplot(coviddata, aes(x=coviddata$Albumin, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Albumin") + ylab("Outcome") + ggtitle("Impact of Albumin on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p3)
+
+p4 <- ggplot(coviddata, aes(x=coviddata$`Prothrombin activity`, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Prothrombin Activity") + ylab("Outcome") + ggtitle("Impact of Prothrombin Activity on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p4)
+
+p5 <- ggplot(coviddata, aes(x=coviddata$`High sensitivity C-reactive protein`, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("High sensivity C-reactive protein") + ylab("Outcome") + ggtitle("Impact of High sensivity C-reactive protein on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p5)
+
+p6 <- ggplot(coviddata, aes(x=coviddata$`D-D dimer`, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("D-D dimer") + ylab("Outcome") + ggtitle("Impact of D-D dimer on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p6)
+
+p7 <- ggplot(coviddata, aes(x=coviddata$`Lactate dehydrogenase`, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Lactate dehydrogenase") + ylab("Outcome") + ggtitle("Impact of Lactate dehydrogenase on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p7)
+
+p8 <- ggplot(coviddata, aes(x=coviddata$`Neutrophils count`, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Neutrophils count") + ylab("Outcome") + ggtitle("Impact of Neutrophils count on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p8)
+
+p9 <- ggplot(coviddata, aes(x=coviddata$`Fibrin degradation products`, color=factor(coviddata$Outcome))) + geom_histogram(binwidth = 1, fill="beige") + xlab("Fibrin degradation products") + ylab("Outcome") + ggtitle("Impact of Fibrin degradation products on Outcome") + scale_color_manual(labels = c("Survived", "Died"), values = c("darkgreen", "red")) + labs(color="Outcome")
+plot(p9)
+```
+
+## Interactive graph showing the change of selected attributes over time
+
+```{r}
+
+coviddata$Gender[coviddata$Gender==1] <- "Male"
+coviddata$Gender[coviddata$Gender==2] <- "Female"
+
+#coviddata$Outcome[coviddata$Outcome==0] <- "Survived"
+#coviddata$Outcome[coviddata$Outcome==1] <- "Died"
+
+p10 <- ggplot(coviddata, aes(x=Age, y=Gender, color=Outcome)) + geom_point() + scale_color_distiller() + theme_classic() + theme(legend.title = element_blank())
+ggplotly(p10)
+```
+
+## Patient survival classifier
+
+```{r}
+
+coviddata.training.indicies <- createDataPartition(coviddata$Outcome, p = 0.80, list = FALSE)
+coviddata.training <- coviddata[coviddata.training.indicies,]
+coviddata.validation <- coviddata[-coviddata.training.indicies,]
+
+control <- trainControl(method="cv", number=10)
+metric <- "Accuracy"
+
+library(MASS)
+#set.seed(7)
+#fit.lda <- train(Outcome~., data=coviddata.training, method="lda", metric=metric, trControl=control )
+
+#set.seed(7)
+#fit.cart <- train(Outcome~., data=coviddata.training, method="cart", metric=metric, trControl=control )
+
+#set.seed(7)
+#fit.knn <- train(Outcome~., data=coviddata.training, method="knn", metric=metric, trControl=control )
+
+#set.seed(7)
+#fit.svm <- train(Outcome~., data=coviddata.training, method="svm", metric=metric, trControl=control )
+
+#set.seed(7)
+#fit.rf <- train(Outcome~., data=coviddata.training, method="rf", metric=metric, trControl=control )
+```
+
+## Importance analysis of the attributes of the best model found
+
+
+The correlation analysis conducted in the report indicates several factors having major influence over predicted patients outcome. The following parameters seems to have the most significance:
+
+- Neutrofils (%) and Neutrofils count 
+- Percentage of Lymphocytes
+- Albumin
+- Prothrombin activity
+- High sensitivity C-reactive protein
+- D-D Dimer
+- Lactate dehydrogenase
+- Fibrin degradation products 
+
+The results of data analysis are consistent with the article „An interpretable mortality prediction model for COVID-19 patients”. The proposed estimated outcome algorithm is dependent on three factors:
+
+- Lactate dehydrogenase
+- High sensitivity C-reactive protein
+- Lymphocyte
+
+All three parameters are among the most significant factors obtained during analysis.
+
+
